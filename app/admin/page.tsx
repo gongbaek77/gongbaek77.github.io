@@ -163,6 +163,8 @@ function Proofs({ user }: { user: ShellUser }) {
   const [names, setNames] = useState<Map<string, string>>(new Map())
   const [busy, setBusy] = useState('')
   const [msg, setMsg] = useState('')
+  const [note, setNote] = useState('')
+  const [days, setDays] = useState(90)
   const load = useCallback(async () => {
     const s = getSupabaseClient()
     const q = s.from('study_proofs').select('id, user_id, study_date, storage_path, caption, reviewed_by, reviewed_at, created_at').eq('status', st)
@@ -179,6 +181,35 @@ function Proofs({ user }: { user: ShellUser }) {
     }
   }, [st])
   useEffect(() => { load().catch((e) => setMsg(e.message)) }, [load])
+  // 사진 파일만 지웁니다. 인증 기록(승인 횟수 등)은 그대로 남아요.
+  async function removePhotos(paths: string[]) {
+    const { data, error } = await getSupabaseClient().storage.from(PROOFS).remove(paths)
+    if (error) { setMsg(`삭제하지 못했어요: ${error.message}`); return 0 }
+    return (data ?? []).length
+  }
+  async function deleteOne(r: any) {
+    if (!confirm('이 인증 사진 파일을 삭제할까요?\n인증 기록은 남고 사진만 지워지며, 되돌릴 수 없어요.')) return
+    setBusy(r.id); setMsg(''); setNote('')
+    const n = await removePhotos([r.storage_path])
+    setBusy('')
+    setNote(n ? '사진을 삭제했어요. 저장 공간이 확보돼요.' : '삭제된 파일이 없어요. 이미 지워졌거나 권한이 없을 수 있어요.')
+    load().catch(() => {})
+  }
+  async function cleanup() {
+    if (!confirm(`승인·반려된 인증 중 ${days}일이 지난 사진을 모두 삭제할까요?\n인증 기록은 남지만 사진은 영구 삭제돼요.`)) return
+    setBusy('bulk'); setMsg(''); setNote('')
+    try {
+      const cutoff = new Date(Date.now() - days * 86400000).toISOString()
+      const s = getSupabaseClient()
+      const list = await fetchAll((x, y) => s.from('study_proofs').select('id, storage_path').in('status', ['approved', 'rejected']).lt('created_at', cutoff).order('id').range(x, y))
+      const paths = list.map((r) => r.storage_path as string)
+      let removed = 0
+      for (let i = 0; i < paths.length; i += 100) removed += await removePhotos(paths.slice(i, i + 100))
+      setNote(removed ? `${removed}장을 삭제했어요. 저장 공간이 확보돼요.` : '정리할 사진이 없어요.')
+    } catch (e) { setMsg(e instanceof Error ? e.message : '정리하지 못했어요.') }
+    setBusy('')
+    load().catch(() => {})
+  }
   async function review(id: string, status: 'approved' | 'rejected') {
     setBusy(id); setMsg('')
     const { error } = await getSupabaseClient().from('study_proofs').update({ status, reviewed_by: user.id, reviewed_at: new Date().toISOString() }).eq('id', id).eq('status', 'pending')
@@ -190,11 +221,22 @@ function Proofs({ user }: { user: ShellUser }) {
     <div className="space-y-4">
       <div className="flex gap-2">{(Object.keys(STATUS) as St[]).map((k) => <button key={k} onClick={() => setSt(k)} className={pill(st === k)}>{STATUS[k]}</button>)}</div>
       <Err text={msg} />
+      {note && <p role="status" className="rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm">{note}</p>}
+      <div className={`${card} space-y-3`}>
+        <h3 className="text-sm font-semibold">오래된 인증 사진 정리</h3>
+        <p className="text-xs text-neutral-500">승인·반려된 사진 중 기간이 지난 것을 한꺼번에 삭제해 저장 공간을 확보해요. 인증 기록과 챌린지 진행률은 그대로 남아요.</p>
+        <div className="flex gap-2">
+          <select className={field} value={days} onChange={(e) => setDays(Number(e.target.value))}>
+            {[30, 60, 90, 180].map((d) => <option key={d} value={d}>{d}일 지난 사진</option>)}
+          </select>
+          <button disabled={busy === 'bulk'} onClick={cleanup} className="h-11 shrink-0 rounded-full border border-neutral-200 px-5 text-sm disabled:opacity-50">정리하기</button>
+        </div>
+      </div>
       {rows.length === 0 && <p className={`${card} text-center text-sm text-neutral-500`}>해당하는 인증이 없어요.</p>}
       <div className="grid gap-4 sm:grid-cols-2">
         {rows.map((r) => (
           <article key={r.id} className="overflow-hidden rounded-2xl border border-neutral-200 bg-white">
-            {urls[r.storage_path] ? <a href={urls[r.storage_path]} target="_blank" rel="noreferrer"><img src={urls[r.storage_path]} alt="" className="aspect-[4/3] w-full object-cover" /></a> : <div className="aspect-[4/3] bg-neutral-100" />}
+            {urls[r.storage_path] ? <a href={urls[r.storage_path]} target="_blank" rel="noreferrer"><img src={urls[r.storage_path]} alt="" className="aspect-[4/3] w-full object-cover" /></a> : <div className="flex aspect-[4/3] items-center justify-center bg-neutral-100 text-xs text-neutral-400">삭제되었거나 불러올 수 없는 사진</div>}
             <div className="p-4">
               <p className="font-semibold">{names.get(r.user_id) ?? '알 수 없음'}</p>
               <p className="mt-1 text-xs text-neutral-400">{r.study_date} · 제출 {when(r.created_at)}</p>
@@ -205,6 +247,7 @@ function Proofs({ user }: { user: ShellUser }) {
                   <button disabled={busy === r.id} onClick={() => review(r.id, 'rejected')} className="h-10 rounded-full border border-neutral-200 px-5 text-sm disabled:opacity-50">반려</button>
                 </div>
               ) : <p className="mt-3 text-xs text-neutral-400">검토자 {names.get(r.reviewed_by) ?? '-'} · {when(r.reviewed_at)}</p>}
+              {urls[r.storage_path] && <button disabled={busy === r.id} onClick={() => deleteOne(r)} className="mt-3 text-xs text-neutral-500 hover:text-neutral-950 disabled:opacity-50">사진 삭제</button>}
             </div>
           </article>
         ))}
