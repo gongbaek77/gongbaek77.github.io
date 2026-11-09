@@ -71,6 +71,18 @@ function TitlesContent({ user }: { user: ShellUser }) {
     const ok = await run(() => supabase.from('user_title_awards').insert({ user_id: af.user, title_id: af.title, awarded_by: user.id, note: af.note.trim() || null }), '칭호를 부여했어요.')
     if (ok) setAf({ ...af, note: '' })
   }
+  const removeTitle = (t: Title) => {
+    const n = awards.filter((a) => a.title_id === t.id).length
+    const ask = n ? `'${t.title_name}' 칭호는 ${n}명에게 부여되어 있어요. 삭제하면 부여 내역도 함께 삭제돼요. 계속할까요?` : `'${t.title_name}' 칭호를 삭제할까요?`
+    if (!confirm(ask)) return
+    return run(async () => {
+      if (n) {
+        const r = await supabase.from('user_title_awards').delete().eq('title_id', t.id)
+        if (r.error) return r
+      }
+      return supabase.from('special_titles').delete().eq('id', t.id)
+    }, '칭호를 삭제했어요.')
+  }
   const revoke = (a: Award) => confirm('이 칭호를 회수할까요?') && run(() => supabase.from('user_title_awards').delete().eq('id', a.id), '칭호를 회수했어요.')
 
   const mine = awards.filter((a) => a.user_id === user.id)
@@ -109,6 +121,7 @@ function TitlesContent({ user }: { user: ShellUser }) {
               <span className="text-2xl">{t.icon ?? '🏅'}</span>
               <div className="min-w-0 flex-1"><p className="text-sm font-medium">{t.title_name}</p>{t.description && <p className="text-xs text-neutral-500">{t.description}</p>}</div>
               <span className="text-xs text-neutral-400">{awards.filter((a) => a.title_id === t.id).length}명</span>
+              {isAdmin && <button disabled={busy} onClick={() => removeTitle(t)} className="text-xs text-neutral-500 hover:text-neutral-950">삭제</button>}
             </div>
           ))}
         </div>
