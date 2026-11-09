@@ -60,7 +60,8 @@ function QuotesContent({ user }: { user: ShellUser }) {
   }
   const remove = (q: Quote) => confirm('이 문장을 삭제할까요?') && run(() => supabase.from('daily_quotes').delete().eq('id', q.id))
 
-  const shown = onlyMine ? quotes.filter((q) => q.user_id === user.id) : quotes
+  const base = isAdmin ? quotes : quotes.filter((q) => names.has(q.user_id))
+  const shown = onlyMine ? base.filter((q) => q.user_id === user.id) : base
   const field = 'w-full rounded-xl border border-neutral-200 bg-white px-3 text-sm outline-none focus:border-neutral-900'
 
   return (
