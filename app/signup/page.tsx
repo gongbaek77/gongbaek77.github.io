@@ -29,12 +29,12 @@ export default function SignupPage() {
     setDone(true)
   }
 
-  const field = 'h-11 w-full rounded-xl border border-neutral-200 bg-white px-3 text-sm outline-none focus:border-neutral-900'
+  const field = 'h-11 w-full rounded-xl border border-neutral-300 bg-white px-3 text-sm text-neutral-950 placeholder:text-neutral-400 outline-none focus:border-neutral-900'
   return (
-    <main className="flex min-h-svh items-center justify-center bg-neutral-50 px-4 py-12">
+    <main className="flex min-h-svh items-center justify-center bg-neutral-50 px-4 py-12 text-neutral-950">
       <div className="w-full max-w-sm">
         <header className="mb-8 text-center">
-          <p className="text-2xl font-semibold tracking-[0.3em]">ANANTHEO</p>
+          <p className="text-2xl font-semibold tracking-[0.3em] text-neutral-950">ANANTHEO</p>
           <h1 className="mt-3 text-sm text-neutral-500">나는 다시 피어난다. 새 계정을 만들어요</h1>
         </header>
         <div className="rounded-xl border border-neutral-200 bg-white p-6 shadow-sm sm:p-8">
@@ -60,4 +60,3 @@ export default function SignupPage() {
     </main>
   )
 }
-
