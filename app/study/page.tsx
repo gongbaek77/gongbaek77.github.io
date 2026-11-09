@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { AppShell, type ShellUser } from '@/components/layout/app-shell'
 import { getSupabaseClient } from '@/lib/supabase/client'
+import { compressImage } from '@/lib/compress-image'
 
 type Entry = { id: string; study_date: string; minutes: number; memo: string | null; status: string }
 type Proof = { id: string; study_date: string; storage_path: string; caption: string | null; status: string; url?: string }
@@ -69,12 +70,14 @@ function StudyContent({ user }: { user: ShellUser }) {
     ev.preventDefault()
     if (!file) return setMsg('인증 사진을 선택해 주세요.')
     if (!file.type.startsWith('image/')) return setMsg('이미지 파일만 올릴 수 있어요.')
-    if (file.size > 10 * 1024 * 1024) return setMsg('사진은 10MB 이하만 올릴 수 있어요.')
+    if (file.size > 30 * 1024 * 1024) return setMsg('사진은 30MB 이하만 올릴 수 있어요.')
     setBusy(true); setMsg('')
     const supabase = getSupabaseClient()
-    const ext = (file.name.split('.').pop() ?? 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg'
+    let photo: File = file
+    try { photo = await compressImage(file) } catch { photo = file }
+    const ext = (photo.name.split('.').pop() ?? 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg'
     const path = `${user.id}/${crypto.randomUUID()}.${ext}`
-    const up = await supabase.storage.from(BUCKET).upload(path, file, { contentType: file.type })
+    const up = await supabase.storage.from(BUCKET).upload(path, photo, { contentType: photo.type })
     if (up.error) { setBusy(false); return setMsg(`사진을 올리지 못했어요: ${up.error.message}`) }
     const { error } = await supabase.from('study_proofs').insert({
       user_id: user.id, study_date: pDate, storage_path: path, caption: caption.trim() || null, status: 'pending',
@@ -156,3 +159,4 @@ function StudyContent({ user }: { user: ShellUser }) {
     </div>
   )
 }
+
