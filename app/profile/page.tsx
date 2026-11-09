@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { AppShell, type ShellUser } from '@/components/layout/app-shell'
 import { getSupabaseClient } from '@/lib/supabase/client'
 import { fetchAll } from '@/lib/fetch-all'
+import { compressImage } from '@/lib/compress-image'
 import { fmtMin } from '@/lib/dates'
 
 type Me = { id: string; username: string; display_name: string | null; avatar_path: string | null; created_at: string }
@@ -94,11 +95,13 @@ function ProfileContent({ user }: { user: ShellUser }) {
   async function uploadAvatar(file: File | undefined) {
     if (!file || !me) return
     if (!file.type.startsWith('image/')) return setMsg('이미지 파일만 올릴 수 있어요.')
-    if (file.size > 5 * 1024 * 1024) return setMsg('사진은 5MB 이하만 올릴 수 있어요.')
+    if (file.size > 30 * 1024 * 1024) return setMsg('사진은 30MB 이하만 올릴 수 있어요.')
     setBusy(true); setMsg('')
-    const ext = (file.name.split('.').pop() ?? 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg'
+    let photo: File = file
+    try { photo = await compressImage(file, 512, 0.85) } catch { photo = file }
+    const ext = (photo.name.split('.').pop() ?? 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg'
     const path = `${user.id}/${crypto.randomUUID()}.${ext}`
-    const up = await supabase.storage.from(AVATARS).upload(path, file, { contentType: file.type })
+    const up = await supabase.storage.from(AVATARS).upload(path, photo, { contentType: photo.type })
     if (up.error) { setBusy(false); return setMsg(`사진을 올리지 못했어요: ${up.error.message}`) }
     const { error } = await supabase.from('profiles').update({ avatar_path: path }).eq('id', user.id)
     if (error) { await supabase.storage.from(AVATARS).remove([path]); setBusy(false); return setMsg(`저장하지 못했어요: ${error.message}`) }
