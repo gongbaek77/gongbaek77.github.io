@@ -213,7 +213,7 @@ function Proofs({ user }: { user: ShellUser }) {
   )
 }
 
-type Member = { id: string; username: string; display_name: string | null; role: string; is_suspended: boolean; suspension_reason: string | null; suspended_at: string | null; created_at: string }
+type Member = { id: string; username: string; display_name: string | null; role: string; is_suspended: boolean; is_hidden: boolean; suspension_reason: string | null; suspended_at: string | null; created_at: string }
 
 function Members({ user }: { user: ShellUser }) {
   const [list, setList] = useState<Member[]>([])
@@ -226,7 +226,7 @@ function Members({ user }: { user: ShellUser }) {
   const load = useCallback(async () => {
     const s = getSupabaseClient()
     const [p, pt, w, e] = await Promise.all([
-      fetchAll((a, b) => s.from('profiles').select('id, username, display_name, role, is_suspended, suspension_reason, suspended_at, created_at').order('created_at', { ascending: false }).order('id').range(a, b)),
+      fetchAll((a, b) => s.from('profiles').select('id, username, display_name, role, is_suspended, is_hidden, suspension_reason, suspended_at, created_at').order('created_at', { ascending: false }).order('id').range(a, b)),
       fetchAll((a, b) => s.from('participant_point_balances').select('user_id, total_points').order('user_id').range(a, b)),
       fetchAll((a, b) => s.from('participant_warning_balances').select('user_id, warning_count').order('user_id').range(a, b)),
       fetchAll((a, b) => s.from('study_entries').select('id, user_id, minutes').eq('status', 'approved').order('id').range(a, b)),
@@ -256,6 +256,7 @@ function Members({ user }: { user: ShellUser }) {
             <span className="flex items-center gap-2 text-xs">
               {m.role === 'admin' && <span className="rounded-full border px-2 py-0.5">관리자</span>}
               {m.is_suspended && <span className="rounded-full bg-red-50 px-2 py-0.5 text-red-700">정지</span>}
+              {m.is_hidden && <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-neutral-600">숨김</span>}
               <span className="text-neutral-400">{(pts.get(m.id) ?? 0).toLocaleString()}P</span>
             </span>
           </button>
@@ -300,6 +301,7 @@ function MemberDetail({ m, me, minutes, points, warn, onChanged }: { m: Member; 
         <h2 className="text-lg font-semibold">{m.display_name || m.username} <span className="text-sm font-normal text-neutral-400">@{m.username}</span></h2>
         <p className="mt-1 text-xs text-neutral-400">가입 {when(m.created_at)} · 누적 {fmtMin(minutes)} · {points.toLocaleString()}P · 경고 {warn}/5 · 칭호 {hist.titles}개</p>
         {m.is_suspended && <p className="mt-2 text-sm text-red-700">정지됨{m.suspension_reason ? ` — ${m.suspension_reason}` : ''}</p>}
+        {m.is_hidden && <p className="mt-2 text-sm text-neutral-600">다른 회원에게 숨겨진 계정이에요.</p>}
       </div>
       <Err text={msg.startsWith('처리하지') ? msg : ''} />
       {msg && !msg.startsWith('처리하지') && <p className="rounded-xl border border-neutral-200 px-4 py-3 text-sm">{msg}</p>}
@@ -315,6 +317,14 @@ function MemberDetail({ m, me, minutes, points, warn, onChanged }: { m: Member; 
               <button disabled={busy || !reason.trim()} onClick={() => confirm('이 회원을 정지할까요?') && run(() => s.rpc('admin_set_participant_suspension', { target_user_id: m.id, should_suspend: true, reason: reason.trim() }), '회원을 정지했어요.')} className="h-11 shrink-0 rounded-full border border-neutral-200 px-5 text-sm disabled:opacity-50">정지</button>
             </div>
           )}
+        </div>
+      )}
+
+      {!self && m.role !== 'admin' && (
+        <div className="space-y-2">
+          <h3 className="text-sm font-semibold">다른 회원에게 보이기</h3>
+          <p className="text-xs text-neutral-500">숨기면 랭킹, 커뮤니티, 회원 목록에서 이 계정과 작성 글이 보이지 않아요. 계정 이용은 막지 않아요. 정지된 계정도 같은 방식으로 가려져요.</p>
+          <button disabled={busy} onClick={() => run(() => s.rpc('admin_set_participant_hidden', { target_user_id: m.id, should_hide: !m.is_hidden }), m.is_hidden ? '숨김을 해제했어요.' : '계정을 숨겼어요.')} className="h-10 rounded-full border border-neutral-200 px-5 text-sm disabled:opacity-50">{m.is_hidden ? '숨김 해제' : '숨김'}</button>
         </div>
       )}
 
