@@ -94,6 +94,7 @@ function CommunityContent({ user }: { user: ShellUser }) {
   const hideComment = (c: Comment) => run(() => supabase.from('community_comments').update({ is_hidden: !c.is_hidden }).eq('id', c.id))
 
   const small = 'text-xs text-neutral-500 hover:text-neutral-950'
+  const shownPosts = isAdmin ? posts : posts.filter((p) => names.has(p.user_id))
 
   return (
     <div className="space-y-6">
@@ -110,12 +111,12 @@ function CommunityContent({ user }: { user: ShellUser }) {
         <button disabled={busy} onClick={addPost} className="h-10 rounded-full bg-neutral-950 px-6 text-sm text-white disabled:opacity-50">글 올리기</button>
       </div>
 
-      {posts.length === 0 && <p className="rounded-2xl border border-neutral-200 bg-white p-8 text-center text-sm text-neutral-500">아직 글이 없어요. 첫 글을 남겨보세요.</p>}
+      {shownPosts.length === 0 && <p className="rounded-2xl border border-neutral-200 bg-white p-8 text-center text-sm text-neutral-500">아직 글이 없어요. 첫 글을 남겨보세요.</p>}
 
-      {posts.map((p) => {
+      {shownPosts.map((p) => {
         const likes = reactions.filter((r) => r.post_id === p.id)
         const liked = likes.some((r) => r.user_id === user.id)
-        const cs = comments.filter((c) => c.post_id === p.id)
+        const cs = comments.filter((c) => c.post_id === p.id && (isAdmin || names.has(c.user_id)))
         const mine = p.user_id === user.id
         return (
           <article key={p.id} className="rounded-2xl border border-neutral-200 bg-white p-5">
