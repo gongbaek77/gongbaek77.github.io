@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { AppShell, type ShellUser } from '@/components/layout/app-shell'
 import { getSupabaseClient } from '@/lib/supabase/client'
 import { fetchAll } from '@/lib/fetch-all'
-import { addDays, fmtMin, monthFirst, monthLast, todayStr, weekStart, ymd } from '@/lib/dates'
+import { addDays, fmtMin, monthFirst, monthLast, studyNow, todayStr, weekStart, ymd } from '@/lib/dates'
 
 type Period = 'day' | 'week' | 'month' | 'all'
 const TABS: { key: Period; label: string }[] = [
@@ -16,7 +16,7 @@ const TABS: { key: Period; label: string }[] = [
 type Row = { user_id: string; name: string; minutes: number; avatar: string | null; url?: string; rank: number }
 
 function rangeOf(p: Period): [string | null, string | null] {
-  const now = new Date()
+  const now = studyNow()
   if (p === 'day') return [todayStr(), todayStr()]
   if (p === 'week') {
     const s = weekStart(now)
