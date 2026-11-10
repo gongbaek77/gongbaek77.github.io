@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { AppShell, type ShellUser } from '@/components/layout/app-shell'
 import { getSupabaseClient } from '@/lib/supabase/client'
 import { fetchAll } from '@/lib/fetch-all'
-import { addDays, fmtMin, monthFirst, weekStart, ymd } from '@/lib/dates'
+import { addDays, fmtMin, monthFirst, studyNow, weekStart, ymd } from '@/lib/dates'
 
 type Entry = { study_date: string; minutes: number }
 type Report = { month_start: string; approved_minutes: number; study_days: number; approved_entry_count: number; approved_proof_count: number }
@@ -53,7 +53,7 @@ function StatsContent({ user }: { user: ShellUser }) {
   }, [user.id])
 
   const s = useMemo(() => {
-    const now = new Date()
+    const now = studyNow()
     const ws = ymd(weekStart(now))
     const ms = ymd(monthFirst(now))
     const byDate = new Map<string, number>()
