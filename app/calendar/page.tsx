@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { AppShell, type ShellUser } from '@/components/layout/app-shell'
 import { getSupabaseClient } from '@/lib/supabase/client'
-import { fmtMin, monthFirst, monthLast, todayStr, ymd } from '@/lib/dates'
+import { fmtMin, monthFirst, monthLast, studyNow, todayStr, ymd } from '@/lib/dates'
 
 type Entry = { study_date: string; minutes: number; status: string; memo: string | null }
 type Act = { activity_date: string; activity_type: string; activity_label: string }
@@ -18,7 +18,7 @@ export default function CalendarPage() {
 }
 
 function CalendarContent({ user }: { user: ShellUser }) {
-  const [cursor, setCursor] = useState(monthFirst(new Date()))
+  const [cursor, setCursor] = useState(monthFirst(studyNow()))
   const [entries, setEntries] = useState<Entry[]>([])
   const [acts, setActs] = useState<Act[]>([])
   const [sel, setSel] = useState(todayStr())
