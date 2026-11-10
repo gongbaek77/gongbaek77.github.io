@@ -1,6 +1,6 @@
 import { getSupabaseClient } from '@/lib/supabase/client'
 import { fetchAll } from '@/lib/fetch-all'
-import { monthFirst, ymd } from '@/lib/dates'
+import { monthFirst, studyNow, ymd } from '@/lib/dates'
 
 // 내 이번 달 / 누적 순위를 계산합니다. (승인된 학습 시간 기준, 정지·삭제 회원 제외)
 export async function myRanks(uid: string) {
@@ -8,7 +8,7 @@ export async function myRanks(uid: string) {
   const rows = await fetchAll((a, b) =>
     supabase.from('study_entries').select('id, user_id, study_date, minutes').eq('status', 'approved').order('id').range(a, b),
   )
-  const prefix = ymd(monthFirst(new Date())).slice(0, 7)
+  const prefix = ymd(monthFirst(studyNow())).slice(0, 7)
   const all = new Map<string, number>()
   const month = new Map<string, number>()
   for (const r of rows) {
