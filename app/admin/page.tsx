@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AppShell, type ShellUser } from '@/components/layout/app-shell'
 import { getSupabaseClient } from '@/lib/supabase/client'
 import { fetchAll } from '@/lib/fetch-all'
-import { fmtMin } from '@/lib/dates'
+import { fmtMin, todayStr } from '@/lib/dates'
 
 type Tab = 'overview' | 'entries' | 'proofs' | 'members'
 const TABS: { key: Tab; label: string }[] = [
@@ -397,10 +397,106 @@ function MemberDetail({ m, me, minutes, points, warn, onChanged }: { m: Member; 
         </div>
       </div>
 
+      <EntryManager m={m} me={me} onChanged={() => { onChanged(); loadHist().catch(() => {}) }} />
+
       <div className="grid gap-4 lg:grid-cols-3 text-sm">
         <div><h3 className="mb-2 font-semibold">포인트 내역</h3>{hist.adj.length === 0 ? <p className="text-neutral-500">없음</p> : hist.adj.map((a, i) => <p key={i} className="border-t py-1.5 first:border-t-0">{a.points > 0 ? '+' : ''}{a.points}P <span className="text-xs text-neutral-400">{a.reason} · {when(a.created_at)}</span></p>)}</div>
         <div><h3 className="mb-2 font-semibold">경고 내역</h3>{hist.war.length === 0 ? <p className="text-neutral-500">없음</p> : hist.war.map((a, i) => <p key={i} className="border-t py-1.5 first:border-t-0">{a.delta > 0 ? '+' : ''}{a.delta} <span className="text-xs text-neutral-400">{a.reason} · {when(a.created_at)}</span></p>)}</div>
         <div><h3 className="mb-2 font-semibold">최근 학습 기록</h3>{hist.ent.length === 0 ? <p className="text-neutral-500">없음</p> : hist.ent.map((a, i) => <p key={i} className="border-t py-1.5 first:border-t-0">{a.study_date} · {a.minutes}분 <span className="text-xs text-neutral-400">{STATUS[a.status as St] ?? a.status}</span></p>)}</div>
+      </div>
+    </div>
+  )
+}
+
+type EntryRow = { id: string; study_date: string; minutes: number; memo: string | null; status: string }
+
+function EntryManager({ m, me, onChanged }: { m: Member; me: ShellUser; onChanged: () => void }) {
+  const s = getSupabaseClient()
+  const [rows, setRows] = useState<EntryRow[]>([])
+  const [edit, setEdit] = useState<{ id: string; date: string; minutes: string; memo: string; status: string } | null>(null)
+  const [nd, setNd] = useState(todayStr())
+  const [nm, setNm] = useState('')
+  const [nmemo, setNmemo] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState('')
+  const [err, setErr] = useState('')
+
+  const load = useCallback(async () => {
+    const { data, error } = await getSupabaseClient().from('study_entries').select('id, study_date, minutes, memo, status').eq('user_id', m.id).order('study_date', { ascending: false }).order('created_at', { ascending: false }).limit(30)
+    if (error) setErr(error.message)
+    else setRows((data ?? []) as EntryRow[])
+  }, [m.id])
+  useEffect(() => { load().catch(() => {}) }, [load])
+
+  const check = (date: string, minutes: string) => {
+    const n = Number(minutes)
+    if (!date || date > todayStr()) return '날짜를 확인해 주세요. (오늘 학습일까지만 가능해요)'
+    if (!Number.isInteger(n) || n < 1 || n > 1440) return '시간은 1~1440분 사이의 숫자로 입력해 주세요.'
+    return ''
+  }
+
+  async function add() {
+    const bad = check(nd, nm)
+    if (bad) return setErr(bad)
+    setBusy(true); setErr(''); setMsg('')
+    const { error } = await s.rpc('admin_add_study_entry', { target_user_id: m.id, entry_date: nd, entry_minutes: Number(nm), entry_memo: nmemo.trim() || null })
+    setBusy(false)
+    if (error) return setErr(`추가하지 못했어요: ${error.message}`)
+    setNm(''); setNmemo('')
+    setMsg('승인된 학습 기록으로 추가했어요. 포인트에 자동으로 반영돼요.')
+    load().catch(() => {}); onChanged()
+  }
+
+  async function save() {
+    if (!edit) return
+    const bad = check(edit.date, edit.minutes)
+    if (bad) return setErr(bad)
+    setBusy(true); setErr(''); setMsg('')
+    const pending = edit.status === 'pending'
+    const { data, error } = await s.from('study_entries').update({
+      study_date: edit.date, minutes: Number(edit.minutes), memo: edit.memo.trim() || null, status: edit.status,
+      reviewed_by: pending ? null : me.id, reviewed_at: pending ? null : new Date().toISOString(),
+    }).eq('id', edit.id).select('id')
+    setBusy(false)
+    if (error) return setErr(`수정하지 못했어요: ${error.message}`)
+    if (!data || data.length === 0) return setErr('수정되지 않았어요. 권한을 확인해 주세요.')
+    setEdit(null)
+    setMsg('수정했어요. 포인트에 자동으로 반영돼요.')
+    load().catch(() => {}); onChanged()
+  }
+
+  return (
+    <div className="space-y-3">
+      <h3 className="text-sm font-semibold">학습 시간 추가·수정</h3>
+      <p className="text-xs text-neutral-500">포인트는 승인된 학습 시간 합계(10분당 5P)로 자동 계산돼요. 수정하거나 추가하면 바로 반영돼요. 기록을 없애고 싶으면 상태를 '반려'로 바꾸세요.</p>
+      {err && <Err text={err} />}
+      {msg && <p role="status" className="rounded-xl border border-neutral-200 px-4 py-3 text-sm">{msg}</p>}
+      <div className="grid gap-2 sm:grid-cols-[9rem_7rem_1fr_auto]">
+        <input className={field} type="date" max={todayStr()} value={nd} onChange={(e) => setNd(e.target.value)} />
+        <input className={field} type="number" inputMode="numeric" min={1} max={1440} placeholder="분" value={nm} onChange={(e) => setNm(e.target.value)} />
+        <input className={field} placeholder="메모 (선택)" maxLength={200} value={nmemo} onChange={(e) => setNmemo(e.target.value)} />
+        <button disabled={busy} onClick={add} className="h-11 rounded-full bg-neutral-950 px-5 text-sm text-white disabled:opacity-50">기록 추가</button>
+      </div>
+      <div className="divide-y rounded-xl border border-neutral-200">
+        {rows.length === 0 && <p className="p-4 text-sm text-neutral-500">학습 기록이 없어요.</p>}
+        {rows.map((r) => edit?.id === r.id ? (
+          <div key={r.id} className="space-y-2 bg-neutral-50 p-4">
+            <div className="grid gap-2 sm:grid-cols-[9rem_7rem_1fr_8rem]">
+              <input className={field} type="date" max={todayStr()} value={edit.date} onChange={(e) => setEdit({ ...edit, date: e.target.value })} />
+              <input className={field} type="number" inputMode="numeric" min={1} max={1440} value={edit.minutes} onChange={(e) => setEdit({ ...edit, minutes: e.target.value })} />
+              <input className={field} maxLength={200} placeholder="메모" value={edit.memo} onChange={(e) => setEdit({ ...edit, memo: e.target.value })} />
+              <select className={field} value={edit.status} onChange={(e) => setEdit({ ...edit, status: e.target.value })}>
+                <option value="approved">승인</option><option value="pending">승인 대기</option><option value="rejected">반려</option>
+              </select>
+            </div>
+            <div className="flex gap-3 text-sm"><button disabled={busy} onClick={save} className="font-medium disabled:opacity-50">저장</button><button onClick={() => setEdit(null)} className="text-neutral-500">취소</button></div>
+          </div>
+        ) : (
+          <div key={r.id} className="flex items-start justify-between gap-3 px-4 py-3 text-sm">
+            <span>{r.study_date} · {fmtMin(r.minutes)}<span className="ml-2 text-xs text-neutral-400">{STATUS[r.status as St] ?? r.status}</span>{r.memo && <span className="mt-0.5 block text-xs text-neutral-500">{r.memo}</span>}</span>
+            <button onClick={() => { setErr(''); setMsg(''); setEdit({ id: r.id, date: r.study_date, minutes: String(r.minutes), memo: r.memo ?? '', status: r.status }) }} className="shrink-0 text-xs text-neutral-500 hover:text-neutral-950">수정</button>
+          </div>
+        ))}
       </div>
     </div>
   )
