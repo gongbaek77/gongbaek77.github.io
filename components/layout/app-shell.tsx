@@ -19,6 +19,7 @@ const NAV = [
   { href: '/challenges', label: '챌린지' },
   { href: '/quotes', label: '문장' },
   { href: '/titles', label: '칭호' },
+  { href: '/shop', label: '상점' },
   { href: '/profile', label: '프로필' },
 ]
 
