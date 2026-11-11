@@ -158,3 +158,4 @@ function StudyContent({ user }: { user: ShellUser }) {
     </div>
   )
 }
+
