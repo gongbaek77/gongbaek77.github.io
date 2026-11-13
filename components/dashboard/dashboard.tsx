@@ -6,7 +6,7 @@ import { getSupabaseClient } from '@/lib/supabase/client'
 import { myRanks } from '@/lib/ranking'
 import { fetchAll } from '@/lib/fetch-all'
 import { streaks } from '@/lib/streak'
-import { fmtMin, todayStr } from '@/lib/dates'
+import { fmtMin, todayStr, weekStart, ymd } from '@/lib/dates'
 
 const STATUS: Record<string, string> = { pending: '승인 대기', approved: '승인', rejected: '반려' }
 const when = (s: string) => new Date(s).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
@@ -19,6 +19,7 @@ type D = {
   challenges: any[]; titles: { icon: string | null; name: string }[]; quote: any | null; quoteBy: string
   notices: any[]; unread: Set<string>; entries: any[]; activity: { at: string; text: string }[]
   streak: { current: number; best: number; days: number }
+  weekMinutes: number; goals: { daily: number | null; weekly: number | null }
 }
 
 export function Dashboard() {
@@ -33,7 +34,7 @@ function Home({ user }: { user: ShellUser }) {
     const s = getSupabaseClient()
     ;(async () => {
       const today = todayStr()
-      const [todayRows, pt, wb, ranks, prog, awards, quotes, notices, reads, entries, proofs, posts, myQuotes, myDates] = await Promise.all([
+      const [todayRows, pt, wb, ranks, prog, awards, quotes, notices, reads, entries, proofs, posts, myQuotes, myDates, myGoal] = await Promise.all([
         s.from('study_entries').select('minutes, status').eq('user_id', user.id).eq('study_date', today),
         s.from('participant_point_balances').select('total_points').eq('user_id', user.id).maybeSingle(),
         s.from('participant_warning_balances').select('warning_count, warning_limit').eq('user_id', user.id).maybeSingle(),
@@ -47,7 +48,8 @@ function Home({ user }: { user: ShellUser }) {
         s.from('study_proofs').select('id, study_date, status, created_at').eq('user_id', user.id).order('created_at', { ascending: false }).limit(5),
         s.from('community_posts').select('id, body, created_at').eq('user_id', user.id).order('created_at', { ascending: false }).limit(5),
         s.from('daily_quotes').select('id, book_title, created_at').eq('user_id', user.id).order('created_at', { ascending: false }).limit(5),
-        fetchAll((a, b) => s.from('study_entries').select('id, study_date').eq('user_id', user.id).eq('status', 'approved').order('id').range(a, b)),
+        fetchAll((a, b) => s.from('study_entries').select('id, study_date, minutes').eq('user_id', user.id).eq('status', 'approved').order('id').range(a, b)),
+        s.from('personal_goals').select('daily_minutes, weekly_minutes').eq('user_id', user.id).maybeSingle(),
       ])
 
       const tr = (todayRows.data ?? []) as any[]
@@ -83,6 +85,8 @@ function Home({ user }: { user: ShellUser }) {
         unread: new Set((notices.data ?? []).map((n: any) => n.id as string).filter((id: string) => !(reads.data ?? []).some((r: any) => r.announcement_id === id))),
         entries: entries.data ?? [], activity,
         streak: streaks((myDates as any[]).map((r) => r.study_date as string), today),
+        weekMinutes: (myDates as any[]).filter((r) => r.study_date >= ymd(weekStart())).reduce((a, r) => a + (r.minutes ?? 0), 0),
+        goals: { daily: (myGoal.data as any)?.daily_minutes ?? null, weekly: (myGoal.data as any)?.weekly_minutes ?? null },
       })
     })().catch((e) => setErr(e instanceof Error ? e.message : '불러오지 못했어요.'))
   }, [user.id])
@@ -115,6 +119,8 @@ function Home({ user }: { user: ShellUser }) {
               <div key={k} className={card}><p className="text-xs text-neutral-400">{k}</p><p className="mt-2 text-xl font-semibold tabular-nums">{v}</p>{sub && <p className="mt-1 text-xs text-neutral-400">{sub}</p>}</div>
             ))}
           </div>
+
+          <GoalCard userId={user.id} goals={d.goals} today={d.today} pending={d.todayPending} week={d.weekMinutes} onSaved={(g) => setD({ ...d, goals: g })} />
 
           <div className="grid gap-4 lg:grid-cols-2">
             <section className={card}>
@@ -167,6 +173,85 @@ function Home({ user }: { user: ShellUser }) {
         </>
       )}
     </div>
+  )
+}
+
+type Goals = { daily: number | null; weekly: number | null }
+
+function GoalCard({ userId, goals, today, pending, week, onSaved }: { userId: string; goals: Goals; today: number; pending: number; week: number; onSaved: (g: Goals) => void }) {
+  const [edit, setEdit] = useState(false)
+  const [daily, setDaily] = useState('')
+  const [weekly, setWeekly] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState('')
+  const hours = (m: number | null) => (m === null ? '' : String(Math.round((m / 60) * 10) / 10))
+  const field = 'h-11 w-full rounded-xl border border-neutral-200 bg-white px-3 text-sm outline-none focus:border-neutral-900'
+
+  function open() {
+    setDaily(hours(goals.daily)); setWeekly(hours(goals.weekly)); setMsg(''); setEdit(true)
+  }
+  const parse = (v: string, max: number): { ok: boolean; m: number | null } => {
+    if (v.trim() === '') return { ok: true, m: null }
+    const m = Math.round(Number(v) * 60)
+    return m >= 10 && m <= max ? { ok: true, m } : { ok: false, m: null }
+  }
+  async function save() {
+    const d = parse(daily, 1440)
+    const w = parse(weekly, 10080)
+    if (!d.ok || !w.ok) return setMsg('목표는 0.2시간 이상으로 입력하거나 비워 두세요. (하루 24시간, 주 168시간 이하)')
+    setBusy(true); setMsg('')
+    const { error } = await getSupabaseClient().from('personal_goals').upsert(
+      { user_id: userId, daily_minutes: d.m, weekly_minutes: w.m, updated_at: new Date().toISOString() },
+      { onConflict: 'user_id' },
+    )
+    setBusy(false)
+    if (error) return setMsg(`저장하지 못했어요: ${error.message}`)
+    onSaved({ daily: d.m, weekly: w.m })
+    setEdit(false)
+  }
+
+  const bar = (label: string, cur: number, goal: number | null, note?: string) => {
+    if (goal === null) return <p className="text-sm text-neutral-500">{label} 목표를 정해 보세요.</p>
+    const pct = Math.min(100, Math.round((cur / goal) * 100))
+    return (
+      <div>
+        <div className="flex justify-between text-sm">
+          <span>{label} {cur >= goal && <span className="ml-1 rounded-full bg-neutral-950 px-2 py-0.5 text-[10px] text-white">달성</span>}</span>
+          <span className="tabular-nums text-neutral-500">{fmtMin(cur)} / {fmtMin(goal)} ({pct}%)</span>
+        </div>
+        <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-neutral-100"><div className="h-full rounded-full bg-neutral-950" style={{ width: `${pct}%` }} /></div>
+        {note && <p className="mt-1 text-xs text-neutral-400">{note}</p>}
+      </div>
+    )
+  }
+
+  return (
+    <section className="rounded-2xl border border-neutral-200 bg-white p-5">
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="font-semibold">나의 목표</h2>
+        {!edit && <button onClick={open} className="text-xs text-neutral-500 underline">{goals.daily === null && goals.weekly === null ? '목표 정하기' : '목표 수정'}</button>}
+      </div>
+      {edit ? (
+        <div className="space-y-3">
+          <label className="block text-xs text-neutral-500">하루 목표 (시간)
+            <input className={`${field} mt-1`} type="number" inputMode="decimal" step="0.5" min="0" placeholder="예: 4 (비우면 목표 없음)" value={daily} onChange={(e) => setDaily(e.target.value)} />
+          </label>
+          <label className="block text-xs text-neutral-500">주간 목표 (시간, 월요일 시작)
+            <input className={`${field} mt-1`} type="number" inputMode="decimal" step="0.5" min="0" placeholder="예: 20 (비우면 목표 없음)" value={weekly} onChange={(e) => setWeekly(e.target.value)} />
+          </label>
+          {msg && <p role="alert" className="text-sm text-red-700">{msg}</p>}
+          <div className="flex gap-3">
+            <button disabled={busy} onClick={save} className="h-10 rounded-full bg-neutral-950 px-6 text-sm text-white disabled:opacity-50">저장</button>
+            <button onClick={() => setEdit(false)} className="h-10 rounded-full border border-neutral-200 px-6 text-sm">취소</button>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {bar('오늘', today, goals.daily, pending ? `승인 대기 ${fmtMin(pending)}은 승인되면 반영돼요.` : undefined)}
+          {bar('이번 주', week, goals.weekly)}
+        </div>
+      )}
+    </section>
   )
 }
 
