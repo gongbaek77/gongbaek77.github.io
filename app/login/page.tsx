@@ -20,6 +20,9 @@ export default function LoginPage() {
         <p className="mt-6 text-center text-sm text-muted-foreground">
           아직 계정이 없나요? <a href="/signup/" className="text-foreground underline">회원가입</a>
         </p>
+        <p className="mt-2 text-center text-sm text-muted-foreground">
+          비밀번호를 잊으셨나요? <a href="/reset-password/" className="text-foreground underline">비밀번호 찾기</a>
+        </p>
       </div>
     </main>
   )
