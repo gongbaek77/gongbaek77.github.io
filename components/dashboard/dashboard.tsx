@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react'
 import { AppShell, type ShellUser } from '@/components/layout/app-shell'
 import { getSupabaseClient } from '@/lib/supabase/client'
 import { myRanks } from '@/lib/ranking'
+import { fetchAll } from '@/lib/fetch-all'
+import { streaks } from '@/lib/streak'
 import { fmtMin, todayStr } from '@/lib/dates'
 
 const STATUS: Record<string, string> = { pending: '승인 대기', approved: '승인', rejected: '반려' }
@@ -16,6 +18,7 @@ type D = {
   ranks: { all: number | null; month: number | null; allMinutes: number; monthMinutes: number }
   challenges: any[]; titles: { icon: string | null; name: string }[]; quote: any | null; quoteBy: string
   notices: any[]; unread: Set<string>; entries: any[]; activity: { at: string; text: string }[]
+  streak: { current: number; best: number; days: number }
 }
 
 export function Dashboard() {
@@ -30,7 +33,7 @@ function Home({ user }: { user: ShellUser }) {
     const s = getSupabaseClient()
     ;(async () => {
       const today = todayStr()
-      const [todayRows, pt, wb, ranks, prog, awards, quotes, notices, reads, entries, proofs, posts, myQuotes] = await Promise.all([
+      const [todayRows, pt, wb, ranks, prog, awards, quotes, notices, reads, entries, proofs, posts, myQuotes, myDates] = await Promise.all([
         s.from('study_entries').select('minutes, status').eq('user_id', user.id).eq('study_date', today),
         s.from('participant_point_balances').select('total_points').eq('user_id', user.id).maybeSingle(),
         s.from('participant_warning_balances').select('warning_count, warning_limit').eq('user_id', user.id).maybeSingle(),
@@ -44,6 +47,7 @@ function Home({ user }: { user: ShellUser }) {
         s.from('study_proofs').select('id, study_date, status, created_at').eq('user_id', user.id).order('created_at', { ascending: false }).limit(5),
         s.from('community_posts').select('id, body, created_at').eq('user_id', user.id).order('created_at', { ascending: false }).limit(5),
         s.from('daily_quotes').select('id, book_title, created_at').eq('user_id', user.id).order('created_at', { ascending: false }).limit(5),
+        fetchAll((a, b) => s.from('study_entries').select('id, study_date').eq('user_id', user.id).eq('status', 'approved').order('id').range(a, b)),
       ])
 
       const tr = (todayRows.data ?? []) as any[]
@@ -78,6 +82,7 @@ function Home({ user }: { user: ShellUser }) {
         notices: notices.data ?? [],
         unread: new Set((notices.data ?? []).map((n: any) => n.id as string).filter((id: string) => !(reads.data ?? []).some((r: any) => r.announcement_id === id))),
         entries: entries.data ?? [], activity,
+        streak: streaks((myDates as any[]).map((r) => r.study_date as string), today),
       })
     })().catch((e) => setErr(e instanceof Error ? e.message : '불러오지 못했어요.'))
   }, [user.id])
@@ -87,6 +92,8 @@ function Home({ user }: { user: ShellUser }) {
     ['오늘의 학습', fmtMin(d.today), d.todayPending ? `승인 대기 ${fmtMin(d.todayPending)}` : undefined],
     ['이번 달 학습', fmtMin(d.ranks.monthMinutes)],
     ['누적 학습', fmtMin(d.ranks.allMinutes)],
+    ['연속 공부', `${d.streak.current}일`, `최장 ${d.streak.best}일`],
+    ['공부한 날', `${d.streak.days}일`],
     ['보유 포인트', `${d.points.toLocaleString()}P`],
     ['경고', `${d.warn} / ${d.warnLimit}`],
     ['랭킹', d.ranks.month ? `월간 ${d.ranks.month}위` : '월간 -', d.ranks.all ? `누적 ${d.ranks.all}위` : '누적 -'],
