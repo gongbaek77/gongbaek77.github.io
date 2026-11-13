@@ -4,6 +4,7 @@ import './globals.css'
 export const metadata: Metadata = {
   title: 'ANANTHEO',
   description: 'ANANTHEO',
+  appleWebApp: { capable: true, title: 'ANANTHEO', statusBarStyle: 'default' },
 }
 
 export const viewport: Viewport = {
@@ -27,3 +28,4 @@ export default function RootLayout({
     </html>
   )
 }
+
